@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Build script for the llm-client package
+Build script for the unified-llm-client package
 
 @author: skitsanos
 """
@@ -14,7 +14,8 @@ import sys
 def clean_build_dirs():
     """Clean up build directories"""
     print("Cleaning build directories...")
-    dirs_to_clean = ["dist", "build", "llm_client.egg-info"]
+    dirs_to_clean = ["dist", "build", "llm_client.egg-info", "skitsanos_llm_client.egg-info",
+                     "unified_llm_client.egg-info"]
     for dir_name in dirs_to_clean:
         if os.path.exists(dir_name):
             shutil.rmtree(dir_name)

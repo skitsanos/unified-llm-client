@@ -15,7 +15,7 @@ A unified async client library for interacting with multiple LLM providers (Open
 ## Installation
 
 ```bash
-pip install llm-client
+pip install unified-llm-client
 ```
 
 ## Quick Start
@@ -151,8 +151,8 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 To set up the development environment:
 
 ```bash
-git clone https://github.com/skitsanos/llm-client.git
-cd llm-client
+git clone https://github.com/skitsanos/unified-llm-client.git
+cd unified-llm-client
 pip install -e .
 pip install -r requirements-dev.txt
 ```

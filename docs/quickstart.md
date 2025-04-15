@@ -7,7 +7,7 @@ This guide will help you get started with the Unified LLM Client library.
 Install the library using pip:
 
 ```bash
-pip install llm-client
+pip install unified-llm-client
 ```
 
 ## Basic Usage

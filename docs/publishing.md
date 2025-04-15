@@ -1,6 +1,6 @@
 # Publishing to PyPI
 
-This document outlines the steps to publish the `llm-client` package to PyPI.
+This document outlines the steps to publish the `unified-llm-client` package to PyPI.
 
 ## Prerequisites
 
@@ -37,7 +37,7 @@ python -m twine check dist/*
 ### 5. Test the package locally (optional)
 
 ```bash
-pip install dist/llm_client-X.X.X-py3-none-any.whl
+pip install dist/unified_llm_client-X.X.X-py3-none-any.whl
 ```
 
 Replace X.X.X with the actual version.
