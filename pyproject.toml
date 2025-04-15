@@ -40,3 +40,39 @@ package-dir = {"" = "."}
 [tool.setuptools.packages.find]
 include = ["llm*"]
 exclude = ["tests*", "examples*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
+
+# Development tool configurations
+# @author: skitsanos
+[tool.black]
+line-length = 120
+target-version = ["py310", "py311"]
+include = '\\.pyi?$'
+
+[tool.isort]
+profile = "black"
+line_length = 120
+multi_line_output = 3
+include_trailing_comma = true
+force_grid_wrap = 0
+use_parentheses = true
+ensure_newline_before_comments = true
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+strict_optional = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+disallow_incomplete_defs = false

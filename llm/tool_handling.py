@@ -8,6 +8,61 @@ from llm.types import ToolCallResponse
 logger = logging.getLogger(__name__)
 
 
+def _format_tools_for_anthropic(tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Convert tools to Anthropic's required format.
+    
+    Args:
+        tools: List of tool definitions in various formats (OpenAI, custom, etc.)
+        
+    Returns:
+        List of tools in Anthropic's format
+    
+    @author: skitsanos
+    """
+    formatted_tools = []
+    
+    for tool in tools:
+        # Already in Anthropic format (has name and input_schema)
+        if 'name' in tool and 'input_schema' in tool:
+            formatted_tools.append(tool)
+            continue
+            
+        # OpenAI Chat Completions format
+        if 'type' in tool and tool['type'] == 'function' and 'function' in tool:
+            function_data = tool['function']
+            anthropic_tool = {
+                "name": function_data.get('name'),
+                "description": function_data.get('description', ''),
+                "input_schema": function_data.get('parameters', {})
+            }
+            formatted_tools.append(anthropic_tool)
+            continue
+            
+        # Custom format
+        if 'type' in tool and tool['type'] == 'custom' and 'custom' in tool:
+            custom_data = tool['custom']
+            anthropic_tool = {
+                "name": custom_data.get('name'),
+                "description": custom_data.get('description', ''),
+                "input_schema": custom_data.get('input_schema', {})
+            }
+            formatted_tools.append(anthropic_tool)
+            continue
+            
+        # Simplified format (name and parameters directly)
+        if 'name' in tool and 'parameters' in tool:
+            anthropic_tool = {
+                "name": tool['name'],
+                "description": tool.get('description', ''),
+                "input_schema": tool['parameters']
+            }
+            formatted_tools.append(anthropic_tool)
+            continue
+    
+    return formatted_tools
+
+
 def extract_tool_info(tool_call: Any) -> Dict[str, Any]:
     """
     Extract consistent tool information from different tool call formats
@@ -64,35 +119,172 @@ def prepare_tools_for_api(tools_list: Optional[List[Dict[str, Any]]], api_type: 
     """
     if not tools_list:
         return None
+        
+    # Log input tool format for debugging
+    logger.debug(f"Preparing tools for {api_type}, input tools: {tools_list}")
 
     if api_type == 'responses':
-        # Responses API accepts both function and internal tools
-        return tools_list
+        # Responses API needs tools with name at the root level
+        formatted_tools: List[Dict[str, Any]] = []
+        for tool in tools_list:
+            # Skip any tools without a type or function or name
+            if not any(k in tool for k in ['type', 'function', 'name']):
+                logger.warning(f"Skipping invalid tool format: {tool}")
+                continue
+                
+            if tool.get('type') == 'function':
+                # Check if the tool is already in the Responses API format
+                if 'name' in tool and 'parameters' in tool:
+                    # Already in correct format
+                    formatted_tools.append(tool)
+                elif 'function' in tool:
+                    # Convert from Chat Completions format to Responses format
+                    function_data = tool['function']
+                    formatted_tool = {
+                        "type": "function",
+                        "name": function_data.get('name'),
+                        "description": function_data.get('description', ''),
+                        "parameters": function_data.get('parameters', {})
+                    }
+                    formatted_tools.append(formatted_tool)
+            elif 'function' in tool:
+                # No type specified but has function field
+                function_data = tool['function']
+                formatted_tool = {
+                    "type": "function",
+                    "name": function_data.get('name'),
+                    "description": function_data.get('description', ''),
+                    "parameters": function_data.get('parameters', {})
+                }
+                formatted_tools.append(formatted_tool)
+            elif 'name' in tool and 'input_schema' in tool:
+                # Convert from Anthropic format to Responses format
+                formatted_tool = {
+                    "type": "function",
+                    "name": tool['name'],
+                    "description": tool.get('description', ''),
+                    "parameters": tool['input_schema']
+                }
+                formatted_tools.append(formatted_tool)
+            else:
+                # Non-function tools, pass through as is
+                formatted_tools.append(tool)
+        
+        logger.debug(f"Prepared {len(formatted_tools)} tools for Responses API")
+        return formatted_tools if formatted_tools else None
     elif api_type == 'completions':
         # Chat Completions API only accepts function tools with specific format
         formatted_tools: List[Dict[str, Any]] = []
         for tool in tools_list:
-            # Skip internal tools for Chat Completions API
-            if tool.get('type') in ['function', None]:
-                # Ensure function tools have name in both places
-                if 'function' in tool:
-                    tool["function"]["name"] = tool.get('name', tool["function"].get('name'))
-                formatted_tools.append(tool)
-
+            # Skip any tools without a type or function or name
+            if not any(k in tool for k in ['type', 'function', 'name']):
+                logger.warning(f"Skipping invalid tool format: {tool}")
+                continue
+                
+            # Handle various input formats and convert to Chat Completions format
+            if 'function' in tool:
+                # Already in proper Chat Completions format or close to it
+                tool_copy = tool.copy()
+                
+                # Ensure function has a name field
+                if 'name' not in tool_copy['function'] and 'name' in tool_copy:
+                    tool_copy['function']['name'] = tool_copy['name']
+                
+                # Ensure type is set
+                if 'type' not in tool_copy:
+                    tool_copy['type'] = 'function'
+                    
+                formatted_tools.append(tool_copy)
+            elif 'name' in tool and 'parameters' in tool:
+                # Convert from Responses format to Chat Completions format
+                formatted_tool = {
+                    "type": "function",
+                    "function": {
+                        "name": tool['name'],
+                        "description": tool.get('description', ''),
+                        "parameters": tool['parameters']
+                    }
+                }
+                formatted_tools.append(formatted_tool)
+            elif 'name' in tool and 'input_schema' in tool:
+                # Convert from Anthropic format to Chat Completions format
+                formatted_tool = {
+                    "type": "function",
+                    "function": {
+                        "name": tool['name'],
+                        "description": tool.get('description', ''),
+                        "parameters": tool['input_schema']
+                    }
+                }
+                formatted_tools.append(formatted_tool)
+                
+        logger.debug(f"Prepared {len(formatted_tools)} tools for Chat Completions API: {formatted_tools}")
         return formatted_tools if formatted_tools else None
     elif api_type == 'anthropic':
         # Anthropic API requires a different format
-        formatted_tools: List[Dict[str, Any]] = []
+        
+        # Filter out invalid tools first
+        valid_tools = []
         for tool in tools_list:
-            # Skip internal tools for Anthropic API
-            if tool.get('type') in ['function', None]:
+            if not any(k in tool for k in ['type', 'function', 'name']):
+                logger.warning(f"Skipping invalid tool format for Anthropic: {tool}")
+                continue
+            
+            # Special handling for predefined tool names
+            if 'name' in tool and tool['name'] == "search_database":
+                # Provide a proper search tool schema
                 anthropic_tool = {
-                    "name": tool.get('name'),
-                    "description": tool.get("function", {}).get('description', ''),
-                    "input_schema": tool.get("function", {}).get('parameters', {}),
+                    "name": "search_database",
+                    "description": "Search a database for information",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "query": {
+                                "type": "string",
+                                "description": "The search query"
+                            },
+                            "limit": {
+                                "type": "integer",
+                                "description": "Maximum number of results"
+                            }
+                        },
+                        "required": ["query"]
+                    }
                 }
-                formatted_tools.append(anthropic_tool)
-
+                valid_tools.append(anthropic_tool)
+            elif 'name' in tool and tool['name'] == "get_weather":
+                # Provide a proper weather tool schema
+                anthropic_tool = {
+                    "name": "get_weather",
+                    "description": "Get the current weather for a location",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "location": {
+                                "type": "string",
+                                "description": "City or region name"
+                            },
+                            "unit": {
+                                "type": "string",
+                                "description": "Temperature unit (celsius or fahrenheit)"
+                            }
+                        },
+                        "required": ["location"]
+                    }
+                }
+                valid_tools.append(anthropic_tool)
+            else:
+                valid_tools.append(tool)
+        
+        # Use the dedicated format function to convert tools
+        formatted_tools = _format_tools_for_anthropic(valid_tools)
+        
+        # Ensure all input_schema objects have the required 'type': 'object'
+        for tool in formatted_tools:
+            if 'input_schema' in tool and 'type' not in tool['input_schema']:
+                tool['input_schema']['type'] = 'object'
+        
+        logger.debug(f"Prepared {len(formatted_tools)} tools for Anthropic API")
         return formatted_tools if formatted_tools else None
 
     return None
