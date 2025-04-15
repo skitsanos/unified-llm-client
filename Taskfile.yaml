@@ -1,0 +1,97 @@
+version: 3
+silent: true
+
+dotenv: ['.env', '{{.ENV}}/.env', '{{.HOME}}/.env']
+
+tasks:
+  venv:
+    cmds:
+      - python3 -m venv .venv
+  install:
+    cmds:
+      - cmd: |
+          source .venv/bin/activate
+          pip install -U pip
+          pip install -U -r requirements.txt
+        platforms: [linux, darwin]
+      - cmd: |
+          .venv\Scripts\activate
+          pip install -U pip
+          pip install -U -r requirements.txt
+        platforms: [windows]
+  install-dev:
+    cmds:
+      - cmd: |
+          source .venv/bin/activate
+          pip install -U pip
+          pip install -U -r requirements-dev.txt
+        platforms: [linux, darwin]
+      - cmd: |
+          .venv\Scripts\activate
+          pip install -U pip
+          pip install -U -r requirements-dev.txt
+        platforms: [windows]
+  test:
+    cmds:
+      - cmd: |
+          source .venv/bin/activate
+          python -m pytest tests/ -v
+        platforms: [linux, darwin]
+      - cmd: |
+          .venv\Scripts\activate
+          python -m pytest tests/ -v
+        platforms: [windows]
+  test-cov:
+    cmds:
+      - cmd: |
+          source .venv/bin/activate
+          python -m pytest tests/ --cov=llm
+        platforms: [linux, darwin]
+      - cmd: |
+          .venv\Scripts\activate
+          python -m pytest tests/ --cov=llm
+        platforms: [windows]
+  lint:
+    cmds:
+      - cmd: |
+          source .venv/bin/activate
+          black llm/ tests/
+          isort llm/ tests/
+          flake8 llm/ tests/
+        platforms: [linux, darwin]
+      - cmd: |
+          .venv\Scripts\activate
+          black llm/ tests/
+          isort llm/ tests/
+          flake8 llm/ tests/
+        platforms: [windows]
+  build:
+    cmds:
+      - cmd: |
+          source .venv/bin/activate
+          python -m build
+        platforms: [linux, darwin]
+      - cmd: |
+          .venv\Scripts\activate
+          python -m build
+        platforms: [windows]
+  publish:
+    cmds:
+      - cmd: |
+          source .venv/bin/activate
+          python -m twine upload dist/*
+        platforms: [linux, darwin]
+      - cmd: |
+          .venv\Scripts\activate
+          python -m twine upload dist/*
+        platforms: [windows]
+  clean:
+    cmds:
+      - cmd: |
+          rm -rf build/ dist/ *.egg-info/
+        platforms: [linux, darwin]
+      - cmd: |
+          if exist build rmdir /s /q build
+          if exist dist rmdir /s /q dist
+          for /d /r . %%d in (*.egg-info) do @if exist "%%d" rmdir /s /q "%%d"
+        platforms: [windows]

@@ -1,0 +1,18 @@
+# Sample .pypirc file
+# Create a copy of this file as ~/.pypirc and replace the placeholders with your actual values
+# Note that using API tokens is more secure than username/password
+
+[distutils]
+index-servers =
+    pypi
+    testpypi
+
+[pypi]
+repository = https://upload.pypi.org/legacy/
+username = __token__
+password = pypi-your-token-here
+
+[testpypi]
+repository = https://test.pypi.org/legacy/
+username = __token__
+password = pypi-test-token-here
