@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "unified-llm-client"
-version = "0.1.1"
+version = "0.2.0"
 description = "A unified async client for interacting with multiple LLM providers"
 readme = "README.md"
 authors = [
