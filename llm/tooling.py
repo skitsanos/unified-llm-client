@@ -1,6 +1,7 @@
 import inspect
 import logging
-from typing import Set, Dict, Any, Callable, List, Optional, TypeVar, Union, Awaitable, cast, Type, get_type_hints, get_origin, get_args
+from typing import Set, Dict, Any, Callable, List, Optional, TypeVar, Union, Awaitable, get_type_hints, get_origin, \
+    get_args
 
 from llm.types import OpenAIToolSchema, AnthropicToolSchema, Tool
 
@@ -115,15 +116,19 @@ def llm_tool(func: ToolFunction[T]) -> DecoratedToolFunction[T]:
     setattr(func, 'openai_tool', openai_tool)
 
     # Create Anthropic tool schema
+    # Make a deep copy to avoid reference problems
+    import copy
     anthropic_tool: AnthropicToolSchema = {
         "name": func_name,
         "description": func_description,
         "input_schema": {
-            "type": "object",
-            "properties": parameters["properties"],
-            "required": parameters["required"]
+            "type": "object",  # This is required by Anthropic
+            "properties": copy.deepcopy(parameters["properties"]),
+            "required": copy.deepcopy(parameters["required"])
         }
     }
+    # Log the schema with proper level
+    logger.debug(f"Created Anthropic tool schema for {func_name}")
     setattr(func, 'anthropic_tool', anthropic_tool)
 
     # Generic tool schema (used by the registry for execution)

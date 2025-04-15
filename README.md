@@ -7,6 +7,7 @@ A unified async client library for interacting with multiple LLM providers (Open
 - Unified interface for multiple LLM providers (OpenAI, Anthropic, Ollama)
 - Async-first design for high-performance applications
 - Tool/function calling support with a consistent interface
+- Streaming support for improved user experience with long responses
 - Rich error handling and logging
 - Support for both OpenAI Completions and Responses APIs
 - Support for local models via Ollama integration
@@ -137,6 +138,46 @@ async def main():
 if __name__ == "__main__":
     asyncio.run(main())
 ```
+
+### Streaming Responses
+
+The library supports streaming responses for both OpenAI and Anthropic models, which improves perceived latency and user
+experience for longer responses:
+
+```python
+import asyncio
+from llm import AsyncLLMClient, StreamHandler
+
+# Define a custom handler function for the stream chunks
+async def handle_chunk(chunk: str):
+    print(chunk, end="", flush=True)
+
+async def main():
+    client = AsyncLLMClient()
+    
+    # Stream a response from OpenAI
+    response = await client.stream(
+        "Explain the theory of relativity in simple terms",
+        model="gpt-4o",
+        stream_handler=handle_chunk
+    )
+    
+    print(f"\n\nTotal tokens: {response['input_tokens']} input, {response['output_tokens']} output")
+    
+    # Stream a response from Anthropic
+    response = await client.stream(
+        "Write a short story about a robot discovering emotions",
+        model="claude-3-5-haiku-latest",
+        stream_handler=handle_chunk
+    )
+    
+    print(f"\n\nTotal tokens: {response['input_tokens']} input, {response['output_tokens']} output")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+Streaming also works with conversation history, system instructions, and tool usage.
 
 ## License
 

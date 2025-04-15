@@ -4,7 +4,7 @@ from typing import List, Dict, Any, Union, Optional
 
 from openai import AsyncOpenAI
 
-from llm.tool_handling import extract_tool_info
+from llm.tool_handling import extract_tool_info, prepare_tools_for_api
 from llm.tooling import ToolRegistry
 from llm.types import Message, LLMResponse
 
@@ -87,9 +87,9 @@ async def handle_responses_api(
             **{k: v for k, v in kwargs.items() if k not in ['tool_outputs']}  # Filter out unsupported params
         }
 
-        # Add tools if provided
+        # Add tools if provided, properly formatted for Responses API
         if tools:
-            response_params["tools"] = tools
+            response_params["tools"] = prepare_tools_for_api(tools, 'responses')
 
         # Add instructions if provided
         if instructions:
@@ -237,6 +237,13 @@ async def handle_responses_api(
 
             # Make a follow-up call to continue the conversation with tool outputs
             # Important: Pass tool_outputs in kwargs to let the function handle them properly
+            # Check if include is already in kwargs to avoid duplication
+            additional_kwargs = {k: v for k, v in kwargs.items() if k != 'tool_outputs'}
+
+            # Only add include if it's not already present in the kwargs
+            if 'include' not in additional_kwargs:
+                additional_kwargs['include'] = ["file_search_call.results"]
+                
             return await handle_responses_api(
                 client=client,
                 tool_registry=tool_registry,
@@ -250,8 +257,7 @@ async def handle_responses_api(
                 current_tool_call_depth=current_tool_call_depth + 1,
                 max_tool_call_depth=max_tool_call_depth,
                 tool_outputs=tool_outputs,  # Add tool outputs via kwargs
-                include=["file_search_call.results"],
-                **{k: v for k, v in kwargs.items() if k != 'tool_outputs'}  # Pass through other kwargs
+                **additional_kwargs  # Pass through other kwargs
             )
 
     # If no tool calls or max depth reached, return the response as is

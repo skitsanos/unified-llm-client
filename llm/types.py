@@ -1,4 +1,7 @@
-from typing import Optional, TypedDict, Literal, List, Dict, Any, Union
+from typing import Optional, TypedDict, Literal, List, Dict, Any, Callable
+
+# Type for stream handler callback function
+StreamHandler = Callable[[str], Any]
 
 
 class Message(TypedDict):

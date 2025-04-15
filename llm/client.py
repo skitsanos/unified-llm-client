@@ -1,18 +1,19 @@
 import json
 import logging
 import os
-from typing import List, Optional, Dict, Any, Union, TypedDict, Literal, cast, overload
+from typing import List, Optional, Dict, Any, Union, overload
 
 from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionMessageToolCall
 from openai.types.responses import ResponseFunctionToolCall
 
-from llm.anthropic import handle_anthropic_api
-from llm.chat_completions import handle_chat_completions_api, prepare_messages
+from llm.anthropic import handle_anthropic_api, stream_anthropic_api
+from llm.chat_completions import handle_chat_completions_api, prepare_messages, stream_chat_completions_api
 from llm.responses_api import handle_responses_api
+from llm.streaming_responses import stream_responses_api
 from llm.tooling import ToolRegistry
-from llm.types import Message, LLMResponse, ModelProvider, ToolCallResponse
+from llm.types import Message, LLMResponse, ModelProvider, ToolCallResponse, StreamHandler
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +141,153 @@ class AsyncLLMClient:
         return tools_responses
 
     @overload
+    async def stream(
+            self,
+            user_input: str,
+            model: str = "gpt-4o-mini",
+            instructions: Optional[str] = None,
+            tools: Optional[List[Dict[str, Any]]] = None,
+            temperature: float = 0.0,
+            max_tokens: int = 4096,
+            use_responses_api: bool = True,
+            stream_handler: Optional[StreamHandler] = None,
+            **kwargs
+    ) -> LLMResponse:
+        ...
+
+    @overload
+    async def stream(
+            self,
+            user_input: List[Message],
+            model: str = "gpt-4o-mini",
+            instructions: Optional[str] = None,
+            tools: Optional[List[Dict[str, Any]]] = None,
+            temperature: float = 0.0,
+            max_tokens: int = 4096,
+            use_responses_api: bool = True,
+            stream_handler: Optional[StreamHandler] = None,
+            **kwargs
+    ) -> LLMResponse:
+        ...
+
+    async def stream(
+            self,
+            user_input: Union[str, List[Message]],
+            model: str = "gpt-4o-mini",
+            instructions: Optional[str] = None,
+            tools: Optional[List[Dict[str, Any]]] = None,
+            temperature: float = 0.0,
+            max_tokens: int = 4096,
+            use_responses_api: bool = True,
+            stream_handler: Optional[StreamHandler] = None,
+            **kwargs
+    ) -> LLMResponse:
+        """
+        Stream a response from an LLM asynchronously.
+
+        Args:
+            user_input: Either a string or a list of message objects with role and content
+            model: Model identifier (e.g., "claude-3-opus-20240229", "gpt-4o-mini")
+            instructions: System instructions for the model
+            tools: Tool definitions for function calling (deprecated, use tool_registry instead)
+            temperature: Sampling temperature
+            max_tokens: Maximum tokens to generate
+            use_responses_api: Whether to use OpenAI's responses API (vs. chat completions)
+            stream_handler: Optional callback function to handle each chunk of the stream
+            **kwargs: Additional parameters to pass to the API
+
+        Returns:
+            LLMResponse object containing:
+                - text: The LLM's complete response text
+                - input_tokens: Number of input tokens used
+                - output_tokens: Number of output tokens used
+                - response_id: ID of the response (only for OpenAI Responses API, otherwise None)
+                - sources: List of sources (if available)
+
+        Raises:
+            ValueError: If the model name is not recognized
+            Exception: If the API call fails
+        """
+        instructions = instructions or None
+
+        # Get model provider to use appropriate client
+        provider: ModelProvider = self._detect_provider(model)
+
+        # Get the appropriate tools for the model (but only if tools not explicitly provided)
+        provider_tools = None
+        if not tools:
+            if provider == "anthropic":
+                provider_tools = self.tool_registry.get_schemas("anthropic") if self.tool_registry else None
+            else:  # openai or ollama
+                provider_tools = self.tool_registry.get_schemas("openai") if self.tool_registry else None
+        else:
+            # Use explicitly provided tools (for backward compatibility)
+            provider_tools = tools
+
+        # Log tools summary for debugging
+        tools_count = len(provider_tools) if provider_tools else 0
+        logger.info(f"Using {tools_count} tools from {'parameter' if tools else 'registry'}")
+
+        # Set default stream handler if none provided
+        if not stream_handler:
+            stream_handler = lambda chunk: None
+
+        try:
+            if provider == "anthropic":
+                return await stream_anthropic_api(
+                    client=self.anthropic_client,
+                    user_input=user_input,
+                    model=model,
+                    instructions=instructions,
+                    tools=provider_tools,
+                    tool_registry=self.tool_registry,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    stream_handler=stream_handler,
+                    **kwargs
+                )
+            elif provider in ("openai", "ollama"):
+                if provider == "ollama":
+                    # Configure client to use Ollama API endpoint if not already set
+                    if not hasattr(self, '_using_ollama') or not self._using_ollama:
+                        base_url = kwargs.get('base_url') or "http://localhost:11434/v1"
+                        self.openai_client = AsyncOpenAI(
+                            base_url=base_url,
+                            api_key="ollama"  # Ollama doesn't require a real API key
+                        )
+                        self._using_ollama = True
+
+                if use_responses_api:
+                    return await stream_responses_api(
+                        client=self.openai_client,
+                        user_input=user_input,
+                        model=model,
+                        instructions=instructions,
+                        tools=provider_tools,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        stream_handler=stream_handler,
+                        **kwargs
+                    )
+                else:
+                    return await stream_chat_completions_api(
+                        client=self.openai_client,
+                        user_input=user_input,
+                        model=model,
+                        instructions=instructions,
+                        tools=provider_tools,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        stream_handler=stream_handler,
+                        **kwargs
+                    )
+            else:
+                raise ValueError(f"Unsupported model: {model}")
+        except Exception as e:
+            # Re-raise with more context
+            raise Exception(f"Error streaming response from {model}: {str(e)}") from e
+
+    @overload
     async def response(
             self,
             user_input: str,
@@ -236,6 +384,7 @@ class AsyncLLMClient:
                     tool_registry=self.tool_registry,
                     temperature=temperature,
                     max_tokens=max_tokens,
+                    anthropic_tool_debug=kwargs.pop('anthropic_tool_debug', False),
                     **kwargs
                 )
             elif provider in ("openai", "ollama"):

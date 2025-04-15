@@ -3,6 +3,12 @@ silent: true
 
 dotenv: ['.env', '{{.ENV}}/.env', '{{.HOME}}/.env']
 
+env:
+  PYTHONPATH: .
+
+includes:
+  examples: Taskfile.examples.yaml
+
 tasks:
   venv:
     cmds:
@@ -52,38 +58,76 @@ tasks:
           python -m pytest tests/ --cov=llm
         platforms: [windows]
   lint:
+    desc: Lint the code with flake8, black, isort, and mypy (Python 3.10+ compatible)
     cmds:
       - cmd: |
           source .venv/bin/activate
-          black llm/ tests/
+          echo "Running isort..."
           isort llm/ tests/
-          flake8 llm/ tests/
+          echo "Running black..."
+          black llm/ tests/
+          echo "Running flake8..."
+          flake8 llm/ tests/ --config=.flake8
+          echo "Running mypy..."
+          mypy llm/ --config-file=.mypy.ini
         platforms: [linux, darwin]
       - cmd: |
           .venv\Scripts\activate
-          black llm/ tests/
+          echo "Running isort..."
           isort llm/ tests/
-          flake8 llm/ tests/
+          echo "Running black..."
+          black llm/ tests/
+          echo "Running flake8..."
+          flake8 llm/ tests/ --config=.flake8
+          echo "Running mypy..."
+          mypy llm/ --config-file=.mypy.ini
         platforms: [windows]
   build:
     cmds:
       - cmd: |
           source .venv/bin/activate
-          python -m build
+          python build_package.py
         platforms: [linux, darwin]
       - cmd: |
           .venv\Scripts\activate
-          python -m build
+          python build_package.py
         platforms: [windows]
   publish:
+    desc: Build and publish the package to PyPI
+    deps: [clean, test, build]
     cmds:
       - cmd: |
           source .venv/bin/activate
+          python -m pip install --upgrade twine
+          python -m twine check dist/*
+          echo "Publishing package to PyPI..."
           python -m twine upload dist/*
         platforms: [linux, darwin]
       - cmd: |
           .venv\Scripts\activate
+          python -m pip install --upgrade twine
+          python -m twine check dist/*
+          echo "Publishing package to PyPI..."
           python -m twine upload dist/*
+        platforms: [windows]
+
+  publish-test:
+    desc: Build and publish the package to TestPyPI
+    deps: [clean, build]
+    cmds:
+      - cmd: |
+          source .venv/bin/activate
+          python -m pip install --upgrade twine
+          python -m twine check dist/*
+          echo "Publishing package to TestPyPI..."
+          python -m twine upload --repository-url https://test.pypi.org/legacy/ dist/*
+        platforms: [linux, darwin]
+      - cmd: |
+          .venv\Scripts\activate
+          python -m pip install --upgrade twine
+          python -m twine check dist/*
+          echo "Publishing package to TestPyPI..."
+          python -m twine upload --repository-url https://test.pypi.org/legacy/ dist/*
         platforms: [windows]
   clean:
     cmds:

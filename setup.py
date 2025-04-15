@@ -10,7 +10,7 @@ with open('README.md', encoding='utf-8') as f:
 
 setup(
     name="unified-llm-client",
-    version="0.1.0",
+    version="0.2.0",
     author="skitsanos",
     author_email="info@skitsanos.com",
     description="A unified async client for interacting with multiple LLM providers",

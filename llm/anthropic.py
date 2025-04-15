@@ -1,214 +1,363 @@
+import json
 import logging
-from typing import List, Dict, Any, Union, Optional
+from typing import List, Dict, Any, Optional, Union
 
 from anthropic import AsyncAnthropic
 
 from llm.tool_handling import prepare_tools_for_api
 from llm.tooling import ToolRegistry
-from llm.types import Message, LLMResponse
+from llm.types import Message, LLMResponse, StreamHandler
 
 logger = logging.getLogger(__name__)
 
 
 async def handle_anthropic_api(
         client: AsyncAnthropic,
-        tool_registry: ToolRegistry,
         user_input: Union[str, List[Message]],
         model: str,
         instructions: Optional[str],
         tools: Optional[List[Dict[str, Any]]],
+        tool_registry: ToolRegistry,
         temperature: float,
         max_tokens: int,
+        anthropic_tool_debug: bool = False,
         **kwargs
 ) -> LLMResponse:
-    """Handle interactions with Anthropic's Claude models with advanced tool handling."""
-    # Extract system prompt from messages or use provided instructions
-    system_prompt = instructions or "You are a helpful assistant."
+    """
+    Handle interactions with Anthropic's API including tool calling.
 
-    # Prepare messages for Anthropic API (excluding system messages)
-    anthropic_messages = []
+    Args:
+        client: The AsyncAnthropic client
+        user_input: Either a string or a list of message objects
+        model: Model identifier (e.g., "claude-3-opus-20240229")
+        instructions: System instructions for the model
+        tools: Tool definitions for function calling
+        tool_registry: Registry of available tools
+        temperature: Sampling temperature
+        max_tokens: Maximum tokens to generate
+        anthropic_tool_debug: Whether to print tool debugging information
+        **kwargs: Additional parameters to pass to Anthropic's API
 
-    # Handle string input
+    Returns:
+        LLMResponse containing the model's response and token usage
+    """
+    # Convert user input to Anthropic's expected format
     if isinstance(user_input, str):
-        anthropic_messages = [
-            {"role": "user", "content": user_input}
-        ]
+        # Simple text query
+        system = instructions or ""
+        messages = [{"role": "user", "content": user_input}]
+        # Log user prompt for debugging
+        print(f"User prompt: {user_input}")
     else:
-        # Handle message list - extract system message if present
-        # Filter out tool messages since Anthropic doesn't support them
+        # Convert conversation history
+        # Handle system message separately
+        system = None
+        messages = []
+        
         for msg in user_input:
-            role = msg.get("role")
-            content = msg.get("content", "")
+            if msg.get("role") == "system" or msg.get("role") == "developer":
+                # If we find a system message, use it as the system prompt
+                # If multiple system messages exist, the last one will be used
+                system = msg.get("content", "")
+            elif msg.get("role") == "user":
+                messages.append({"role": "user", "content": msg.get("content", "")})
+                # Log user prompt for debugging
+                print(f"User prompt: {msg.get('content', '')}")
+            elif msg.get("role") == "assistant":
+                messages.append({"role": "assistant", "content": msg.get("content", "")})
+            elif msg.get("role") == "tool":
+                # Tool responses need to be handled specially
+                # They should be attached to the last assistant message
+                tool_call_id = msg.get("tool_call_id", "unknown")
+                content = msg.get("content", "")
 
-            # Extract system message if present
-            if role == "system" or role == "developer":
-                if content and not instructions:  # Only override if instructions not provided
-                    system_prompt = content
-            elif role == "user" or role == "assistant":
-                # Include only user and assistant messages
-                anthropic_messages.append({"role": role, "content": content})
-            # Skip tool messages completely
+                # Find the most recent assistant message
+                for i in range(len(messages) - 1, -1, -1):
+                    if messages[i].get("role") == "assistant":
+                        # Attach tool response to this message
+                        # Note: This assumes Claude will properly handle this format
+                        # May need updates as Claude's API evolves
+                        if "tool_responses" not in messages[i]:
+                            messages[i]["tool_responses"] = []
 
-    # Prepare parameters for Anthropic API
-    anthropic_params = {
+                        messages[i]["tool_responses"].append({
+                            "tool_call_id": tool_call_id,
+                            "content": content
+                        })
+                        break
+
+        # If no system message was found, use the provided instructions
+        if system is None:
+            system = instructions or ""
+
+    # Prepare properly formatted tools for Anthropic API
+    api_tools = prepare_tools_for_api(tools, 'anthropic') if tools else None
+
+    # Debug output for tool schema conversion
+    if anthropic_tool_debug and api_tools:
+        logger.info(f"Converted tool schemas for Anthropic:")
+        for tool in api_tools:
+            logger.info(f"Tool: {tool['name']}")
+            logger.info(f"Description: {tool.get('description', '')}")
+            logger.info(f"Input Schema: {json.dumps(tool['input_schema'], indent=2)}")
+
+    # Prepare request parameters
+    request_params = {
         "model": model,
-        "messages": anthropic_messages,
-        "system": system_prompt,  # Use top-level system parameter
-        "temperature": temperature,
         "max_tokens": max_tokens,
-        **{k: v for k, v in kwargs.items() if k not in ['tools', 'tool_choice']}  # Remove tools and tool_choice
+        "temperature": temperature,
+        "system": system,
+        "messages": messages,
+        **{k: v for k, v in kwargs.items() if k != 'tools'}  # Remove any tools from kwargs
     }
 
-    # Only add tools if we have properly formatted ones
-    if tools:
-        # Prepare tools with Anthropic format
-        formatted_tools = prepare_tools_for_api(tools, 'anthropic')
-        if formatted_tools:
-            anthropic_params["tools"] = formatted_tools
-            logger.info(f"Sending {len(formatted_tools)} tools to Anthropic API")
+    # Add tools if available
+    if api_tools:
+        request_params["tools"] = api_tools
 
-    # Log parameters for debugging
-    logger.debug(f"Anthropic API parameters: {anthropic_params}")
+    # Make the API call
+    logger.info(
+        f"Making Anthropic API call with {len(messages)} messages and {len(api_tools) if api_tools else 0} tools")
+    response = await client.messages.create(**request_params)
 
-    # Call Anthropic API
-    try:
-        message = await client.messages.create(**anthropic_params)
+    # Extract tool calls if any and process them
+    response_text = response.content[0].text
 
-        # Process tool use in the response if present
-        final_text = ""
-        tool_use_blocks = []
+    # Process tool calls if they exist
+    if hasattr(response, 'tool_calls') and response.tool_calls:
+        logger.info(f"Processing {len(response.tool_calls)} tool calls from Claude")
 
-        for content_block in message.content:
-            if content_block.type == "text":
-                final_text += content_block.text
-            elif content_block.type == "tool_use":
-                # Collect tool use blocks to process
-                tool_use_blocks.append(content_block)
+        tool_inputs = {}
 
-        # If no tool use blocks, return the response as is
-        if not tool_use_blocks:
-            return {
-                "text": final_text,
-                "input_tokens": message.usage.input_tokens,
-                "output_tokens": message.usage.output_tokens,
-                "response_id": None
-            }
-
-        # Process all tool use blocks
-        tool_results_text = "I called the following tools:\n\n"
-
-        for block in tool_use_blocks:
+        # First, process all tool calls
+        for tool_call in response.tool_calls:
             try:
-                tool_name = block.name
-                tool_id = block.id
-                tool_input = block.input or {}
+                # Print tool call info for debugging
+                if anthropic_tool_debug:
+                    logger.info(f"Tool call ID: {tool_call.id}")
+                    logger.info(f"Tool: {tool_call.name}")
+                    logger.info(f"Input: {json.dumps(tool_call.input, indent=2)}")
 
-                # Log the tool input for debugging
-                logger.debug(f"Tool input for {tool_name}: {tool_input}")
+                tool_name = tool_call.name
+                tool_input = tool_call.input
 
-                # Validate tool exists in registry
-                if not tool_registry.has_tool(tool_name):
-                    logger.warning(f"Tool {tool_name} not found in registry")
-                    tool_results_text += f"- {tool_name}: Tool not found in registry\n"
-                    continue
+                # Log the tool input
+                print(f"Tool input for {tool_name}: {tool_input}")
 
-                # Execute the tool
-                result = await tool_registry.execute_tool(tool_name, tool_input)
+                # Execute the tool if it exists
+                if tool_registry.has_tool(tool_name):
+                    result = await tool_registry.execute_tool(tool_name, tool_input)
 
-                # Format the result
-                if isinstance(result, dict):
-                    formatted_result = str(result)  # Convert dict to string
+                    # Store the result for this tool call
+                    tool_inputs[tool_call.id] = {
+                        "tool_call_id": tool_call.id,
+                        "output": result
+                    }
+
+                    if anthropic_tool_debug:
+                        logger.info(f"Tool result: {result}")
                 else:
-                    formatted_result = str(result)
-
-                # Add to results text
-                tool_results_text += f"- {tool_name}: {formatted_result}\n"
-                logger.info(f"Tool processed: {tool_name}")
+                    error = f"Tool '{tool_name}' not found in registry"
+                    logger.error(error)
+                    tool_inputs[tool_call.id] = {
+                        "tool_call_id": tool_call.id,
+                        "output": {"error": error}
+                    }
             except Exception as e:
-                logger.error(f"Error processing tool use block: {e}")
-                tool_results_text += f"- {tool_name}: Error - {str(e)}\n"
+                logger.error(f"Error executing tool {tool_call.name}: {e}")
+                tool_inputs[tool_call.id] = {
+                    "tool_call_id": tool_call.id,
+                    "output": {"error": str(e)}
+                }
 
-        # Make a follow-up call with the tool results as a user message
-        follow_up_messages = anthropic_messages.copy()
+        # If we have tool results, make a follow-up request with them
+        if tool_inputs:
+            # Prepare tool outputs for follow-up request
+            tool_results = [
+                {
+                    "tool_call_id": tool_data["tool_call_id"],
+                    "output": json.dumps(tool_data["output"]) if isinstance(tool_data["output"], dict) else str(
+                        tool_data["output"])
+                }
+                for tool_data in tool_inputs.values()
+            ]
 
-        # Add the assistant's response with tool calls
-        follow_up_messages.append({"role": "assistant", "content": final_text})
+            # Make follow-up request with tool results
+            follow_up_params = {
+                "model": model,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "system": system,
+                "messages": messages + [{"role": "assistant", "content": response_text}],
+                "tool_results": tool_results,
+                **{k: v for k, v in kwargs.items() if k != 'tools'}  # Remove any tools from kwargs
+            }
 
-        # Add a user message with tool results
-        follow_up_messages.append({"role": "user", "content": tool_results_text})
+            # Add tools if they should be available for follow-up
+            if api_tools:
+                follow_up_params["tools"] = api_tools
 
-        # Create the follow-up request
-        follow_up_params = {
-            "model": model,
-            "messages": follow_up_messages,
-            "system": system_prompt,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-            **{k: v for k, v in kwargs.items() if k not in ['tools', 'tool_choice']}
-        }
+            logger.info(f"Making follow-up Anthropic API call with {len(tool_results)} tool results")
+            follow_up_response = await client.messages.create(**follow_up_params)
 
-        # Keep the tools from the original request
-        if 'tools' in anthropic_params:
-            follow_up_params['tools'] = anthropic_params['tools']
+            # Return the follow-up response
+            return {
+                "text": follow_up_response.content[0].text,
+                "input_tokens": follow_up_response.usage.input_tokens,
+                "output_tokens": follow_up_response.usage.output_tokens,
+                "response_id": follow_up_response.id,
+                "sources": None
+            }
 
+    # Return the response if no tools were called
+    return {
+        "text": response_text,
+        "input_tokens": response.usage.input_tokens,
+        "output_tokens": response.usage.output_tokens,
+        "response_id": response.id,
+        "sources": None
+    }
+
+
+async def stream_anthropic_api(
+        client: AsyncAnthropic,
+        user_input: Union[str, List[Message]],
+        model: str,
+        instructions: Optional[str],
+        tools: Optional[List[Dict[str, Any]]],
+        tool_registry: ToolRegistry,
+        temperature: float,
+        max_tokens: int,
+        stream_handler: StreamHandler,
+        **kwargs
+) -> LLMResponse:
+    """
+    Stream responses from Anthropic's API.
+
+    Args:
+        client: The AsyncAnthropic client
+        user_input: Either a string or a list of message objects
+        model: Model identifier (e.g., "claude-3-opus-20240229")
+        instructions: System instructions for the model
+        tools: Tool definitions for function calling
+        tool_registry: Registry of available tools
+        temperature: Sampling temperature
+        max_tokens: Maximum tokens to generate
+        stream_handler: Callback function to handle each chunk of the stream
+        **kwargs: Additional parameters to pass to Anthropic's API
+
+    Returns:
+        LLMResponse containing the model's complete response and token usage
+    """
+    # Convert user input to Anthropic's expected format
+    if isinstance(user_input, str):
+        # Simple text query
+        system = instructions or ""
+        messages = [{"role": "user", "content": user_input}]
+    else:
+        # Convert conversation history
+        # Handle system message separately
+        system = None
+        messages = []
+
+        for msg in user_input:
+            if msg.get("role") == "system" or msg.get("role") == "developer":
+                # If we find a system message, use it as the system prompt
+                # If multiple system messages exist, the last one will be used
+                system = msg.get("content", "")
+            elif msg.get("role") == "user":
+                messages.append({"role": "user", "content": msg.get("content", "")})
+            elif msg.get("role") == "assistant":
+                messages.append({"role": "assistant", "content": msg.get("content", "")})
+            elif msg.get("role") == "tool":
+                # Tool responses need to be handled specially
+                # They should be attached to the last assistant message
+                tool_call_id = msg.get("tool_call_id", "unknown")
+                content = msg.get("content", "")
+
+                # Find the most recent assistant message
+                for i in range(len(messages) - 1, -1, -1):
+                    if messages[i].get("role") == "assistant":
+                        # Attach tool response to this message
+                        if "tool_responses" not in messages[i]:
+                            messages[i]["tool_responses"] = []
+
+                        messages[i]["tool_responses"].append({
+                            "tool_call_id": tool_call_id,
+                            "content": content
+                        })
+                        break
+
+        # If no system message was found, use the provided instructions
+        if system is None:
+            system = instructions or ""
+
+    # Prepare properly formatted tools for Anthropic API
+    api_tools = prepare_tools_for_api(tools, 'anthropic') if tools else None
+
+    # Prepare request parameters
+    request_params = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "system": system,
+        "messages": messages,
+        "stream": True,  # Enable streaming
+        **{k: v for k, v in kwargs.items() if k != 'tools'}  # Remove any tools from kwargs
+    }
+
+    # Add tools if available
+    if api_tools:
+        request_params["tools"] = api_tools
+
+    # Make the API call with streaming
+    logger.info(f"Making streaming Anthropic API call")
+    with_stream = await client.messages.create(**request_params)
+
+    # Process the stream
+    full_text = ""
+    input_tokens = 0
+    output_tokens = 0
+    response_id = None
+
+    async for chunk in with_stream:
+        if hasattr(chunk, 'type') and chunk.type == 'content_block_delta':
+            if hasattr(chunk, 'delta') and hasattr(chunk.delta, 'text'):
+                content = chunk.delta.text
+                full_text += content
+                await stream_handler(content)
+
+        # Get token usage from the chunk if available
+        if hasattr(chunk, 'usage'):
+            if hasattr(chunk.usage, 'input_tokens'):
+                input_tokens = chunk.usage.input_tokens
+            if hasattr(chunk.usage, 'output_tokens'):
+                output_tokens = chunk.usage.output_tokens
+
+        # Get response ID if available
+        if hasattr(chunk, 'message') and hasattr(chunk.message, 'id'):
+            response_id = chunk.message.id
+
+    # If we didn't get token counts from streaming chunks, make a non-streaming call to get them
+    if input_tokens == 0 or output_tokens == 0:
         try:
-            follow_up_message = await client.messages.create(**follow_up_params)
-
-            # Extract final text
-            follow_up_text = ""
-            for content_block in follow_up_message.content:
-                if content_block.type == "text":
-                    follow_up_text += content_block.text
-
-            return {
-                "text": follow_up_text,
-                "input_tokens": follow_up_message.usage.input_tokens,
-                "output_tokens": follow_up_message.usage.output_tokens,
-                "response_id": None
-            }
-
+            # Make a quick non-streaming call with the same parameters
+            request_params["stream"] = False
+            request_params["max_tokens"] = 1  # Minimize token usage
+            non_stream_resp = await client.messages.create(**request_params)
+            input_tokens = non_stream_resp.usage.input_tokens
+            # Estimate output tokens based on text length
+            output_tokens = len(full_text) // 4  # Rough estimate: ~4 chars per token
         except Exception as e:
-            logger.error(f"Error in follow-up call: {e}")
-            # Fall back to returning the initial message
-            return {
-                "text": final_text + "\n\n[Tool results could not be processed: " + str(e) + "]",
-                "input_tokens": message.usage.input_tokens,
-                "output_tokens": message.usage.output_tokens,
-                "response_id": None
-            }
+            logger.warning(f"Failed to estimate token counts: {e}")
+            # Fallback to very rough estimates
+            input_tokens = sum(len(m.get("content", "")) for m in messages) // 4
+            output_tokens = len(full_text) // 4
 
-    except Exception as e:
-        logger.error(f"Anthropic API error: {str(e)}")
-        if "Extra inputs are not permitted" in str(e) or "tool_choice" in str(e) or "Unexpected role" in str(e):
-            # If we get tool-related errors, try without tools
-            logger.warning("Retrying Anthropic API call without tools")
-            anthropic_params.pop("tools", None)
-            anthropic_params.pop("tool_choice", None)
-
-            # Ensure all messages have simple string content
-            for i, msg in enumerate(anthropic_params["messages"]):
-                if isinstance(msg.get("content"), list):
-                    # Convert structured content back to string
-                    text_content = ""
-                    for item in msg["content"]:
-                        if item.get("type") == "text":
-                            text_content += item.get("text", "")
-                    anthropic_params["messages"][i]["content"] = text_content
-
-            message = await client.messages.create(**anthropic_params)
-
-            final_text = ""
-            if message.content:
-                for content_block in message.content:
-                    if content_block.type == "text":
-                        final_text += content_block.text
-
-            return {
-                "text": final_text,
-                "input_tokens": message.usage.input_tokens,
-                "output_tokens": message.usage.output_tokens,
-                "response_id": None
-            }
-        else:
-            # Re-raise other errors
-            raise
+    return {
+        "text": full_text,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "response_id": response_id,
+        "sources": None
+    }
