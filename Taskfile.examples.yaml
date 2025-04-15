@@ -1,0 +1,65 @@
+version: 3
+
+env:
+  PYTHONPATH: .
+
+tasks:
+  basic:
+    desc: Basic example
+    cmds:
+      - cmd: |
+          source .venv/bin/activate
+          python examples/01_basic_example.py
+        platforms: [linux, darwin]
+      - cmd: |
+          .venv\Scripts\activate
+          python examples/01_basic_example.py
+        platforms: [windows]
+
+  ollama:
+    desc: Ollama example
+    cmds:
+      - cmd: |
+          source .venv/bin/activate
+          python examples/03_ollama_tools_example.py
+        platforms: [linux, darwin]
+      - cmd: |
+          .venv\Scripts\activate
+          python examples/03_ollama_tools_example.py
+        platforms: [windows]
+
+  openai:
+    desc: OpenAI example
+    cmds:
+      - cmd: |
+          source .venv/bin/activate
+          python examples/02_openai_tools_example.py
+        platforms: [linux, darwin]
+      - cmd: |
+          .venv\Scripts\activate
+          python examples/02_openai_tools_example.py
+        platforms: [windows]
+
+  anthropic:
+    desc: Anthropic example
+    cmds:
+      - cmd: |
+          source .venv/bin/activate
+          python examples/04_anthropic_tool_calling.py
+        platforms: [linux, darwin]
+      - cmd: |
+          .venv\Scripts\activate
+          python examples/04_anthropic_tool_calling.py
+        platforms: [windows]
+
+  streaming:
+    desc: Streaming example
+    cmds:
+      - cmd: |
+          source .venv/bin/activate
+          python examples/05_streaming.py
+        platforms: [linux, darwin]
+      - cmd: |
+          .venv\Scripts\activate
+          python examples/05_streaming.py
+        platforms: [windows]
