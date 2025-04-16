@@ -113,6 +113,43 @@ if __name__ == "__main__":
 
 Note: Tool calling capabilities vary by model. Qwen models generally have the best support for tool calling among the Ollama-supported models.
 
+## Streaming with Local Models
+
+In version 0.2.0, the Unified LLM Client now supports streaming with Ollama models, which can greatly improve the
+perceived performance:
+
+```python
+import asyncio
+from llm import AsyncLLMClient
+
+# Define a handler for stream chunks
+async def handle_chunk(chunk: str):
+    print(chunk, end="", flush=True)
+
+async def main():
+    # Initialize client
+    client = AsyncLLMClient(
+        base_url="http://localhost:11434/v1",
+        api_key="ollama"
+    )
+    
+    # Stream a response
+    response = await client.stream(
+        "Write a short story about space exploration",
+        model="llama3",
+        stream_handler=handle_chunk,
+        use_responses_api=False
+    )
+    
+    print(f"\n\nTotal tokens: {response['input_tokens']} input, {response['output_tokens']} output")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+Streaming is particularly valuable when using local models, as it provides immediate feedback while the model is
+generating the full response.
+
 ## Performance Considerations
 
 When running models locally, performance depends on your hardware:
