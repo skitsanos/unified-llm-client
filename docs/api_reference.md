@@ -63,6 +63,46 @@ class AsyncLLMClient:
             Exception: If the API call fails
         """
         # ...
+        
+    async def stream(
+        self,
+        user_input: Union[str, List[Message]],
+        model: str = "gpt-4o-mini",
+        instructions: Optional[str] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        temperature: float = 0.0,
+        max_tokens: int = 4096,
+        use_responses_api: bool = True,
+        stream_handler: Optional[StreamHandler] = None,
+        **kwargs
+    ) -> LLMResponse:
+        """
+        Stream a response from an LLM asynchronously.
+
+        Args:
+            user_input: Either a string or a list of message objects with role and content
+            model: Model identifier (e.g., "claude-3-opus-20240229", "gpt-4o-mini")
+            instructions: System instructions for the model
+            tools: Tool definitions for function calling (deprecated, use tool_registry instead)
+            temperature: Sampling temperature
+            max_tokens: Maximum tokens to generate
+            use_responses_api: Whether to use OpenAI's responses API (vs. chat completions)
+            stream_handler: Optional callback function to handle each chunk of the stream
+            **kwargs: Additional parameters to pass to the API
+
+        Returns:
+            LLMResponse object containing:
+                - text: The LLM's complete response text
+                - input_tokens: Number of input tokens used
+                - output_tokens: Number of output tokens used
+                - response_id: ID of the response (only for OpenAI Responses API, otherwise None)
+                - sources: List of sources (if available)
+
+        Raises:
+            ValueError: If the model name is not recognized
+            Exception: If the API call fails
+        """
+        # ...
 ```
 
 ## ToolRegistry
@@ -141,6 +181,10 @@ class LLMResponse(TypedDict):
     output_tokens: int
     response_id: Optional[str]
     sources: Optional[list[str]]
+    
+# Stream handler type
+StreamHandler = Callable[[str], Awaitable[None]]
+"""Type definition for a stream handler function that processes chunks of streamed responses."""
 ```
 
 ## llm_tool Decorator

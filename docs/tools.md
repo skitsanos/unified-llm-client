@@ -1,6 +1,7 @@
 # Tool/Function Calling
 
-The Unified LLM Client provides a consistent interface for tool calling across different LLM providers.
+The Unified LLM Client provides a consistent interface for tool calling across different LLM providers. In version
+0.2.0, the tool calling support has been significantly enhanced, particularly for Anthropic Claude models.
 
 ## Defining Tools
 
@@ -90,5 +91,31 @@ The library automatically adapts tools to the format required by each provider:
 
 - For OpenAI, tools are formatted as OpenAI function tools
 - For Anthropic, tools are formatted in Anthropic's tool format
+- For Ollama, tools are formatted in OpenAI-compatible format
 
 You don't need to worry about the differences in API formats.
+
+## Streaming with Tools
+
+In version 0.2.0, you can now use streaming along with tool calls:
+
+```python
+async def handle_chunk(chunk: str):
+    print(chunk, end="", flush=True)
+
+response = await client.stream(
+    "What's the weather like in Paris?",
+    model="claude-3-5-haiku-latest",
+    instructions="You are a helpful assistant with access to tools.",
+    stream_handler=handle_chunk
+)
+```
+
+## Advanced Tool Calling
+
+For advanced tool calling scenarios, particularly with Anthropic Claude models, see the following guides:
+
+- [Claude Tools Guide](claude_tools.md) - Covers best practices for Claude tools
+- [Anthropic Tool Calling](anthropic/tool_calling.md) - Detailed implementation guide
+
+These guides provide important information about Claude's tool format, schema requirements, and debugging tools.

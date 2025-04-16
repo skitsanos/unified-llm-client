@@ -10,7 +10,9 @@ The Unified LLM Client simplifies working with different LLM providers by provid
 
 - **Unified Interface**: Interact with multiple LLM providers using a consistent API
 - **Async-First**: Built for high-performance applications with async/await support
-- **Tool/Function Calling**: Consistent interface for tool calling across providers
+- **Tool/Function Calling**: Consistent interface for tool calling across providers, with enhanced support for Claude
+  models
+- **Streaming Support**: Stream responses from OpenAI and Anthropic models for better UX with long responses
 - **Error Handling**: Rich error handling and logging
 - **Type Hinting**: Comprehensive type hints for better IDE support
 - **Local Models**: Support for Ollama to run models locally
@@ -31,8 +33,16 @@ For detailed information about the library's classes and methods, see the [API R
 
 ## Examples
 
-The [Examples](examples.md) section provides practical code samples for common use cases.
+The [Examples](examples.md) section provides practical code samples for common use cases, including streaming responses
+and tool calling with different providers.
 
 ## Tool/Function Calling
 
 Learn how to use [Tool/Function Calling](tools.md) with different LLM providers.
+
+For Anthropic Claude-specific tool calling implementation, check the [Claude Tools](claude_tools.md) guide and the
+detailed [Anthropic Tool Calling](anthropic/tool_calling.md) documentation.
+
+## Changelog
+
+See the [Changelog](changelog.md) for details on version 0.2.0 and earlier releases.

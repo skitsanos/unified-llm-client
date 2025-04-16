@@ -93,14 +93,47 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
+## Streaming with Ollama
+
+Ollama supports streaming responses, which can improve the perceived latency:
+
+```python
+import asyncio
+from llm import AsyncLLMClient
+
+# Define a handler function for stream chunks
+async def handle_chunk(chunk: str):
+    print(chunk, end="", flush=True)
+
+async def main():
+    client = AsyncLLMClient(
+        base_url="http://localhost:11434/v1",
+        api_key="ollama"
+    )
+    
+    # Stream a response from Ollama
+    response = await client.stream(
+        "Write a short story about space exploration",
+        model="llama3",
+        stream_handler=handle_chunk,
+        use_responses_api=False
+    )
+    
+    print(f"\n\nTotal tokens: {response['input_tokens']} input, {response['output_tokens']} output")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
 ## Performance Considerations
 
 When using Ollama:
 
 - Performance depends on your hardware (CPU/GPU/RAM)
 - First inference with a model may be slower while it loads into memory
-- Response times are typically slower than cloud APIs but have no latency
+- Response times are typically slower than cloud APIs but have no network latency
 - There are no token limits or usage costs
+- Streaming can significantly improve perceived performance
 
 ## Advanced Configuration
 
